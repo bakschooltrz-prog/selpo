@@ -9,13 +9,14 @@ from telegram.ext import (
 
 BOT_TOKEN  = os.environ.get("BOT_TOKEN", "8394248182:AAHcjWI_sGGUvXUIdo1iHHqYYvNc3I2l_KU")
 MANAGER_ID = int(os.environ.get("MANAGER_ID", "1338569085"))
-BRANCH     = "Аскарова"
+BRANCH     = "Сулиманева"
 
 EMPLOYEES = [
-    "Узакбаев Айбол",
-    "Узакбаев Байбол",
-    "Рахметулла Нурсултан",
-    "Копбаев Елжан",
+    "Бакиров Габит",
+    "Бакиров Шакен",
+    "Махамбет Нуржас",
+    "Рыстай Уласкан",
+    "Райф Арсен",
 ]
 
 TIMEOUT_SECONDS = 15
