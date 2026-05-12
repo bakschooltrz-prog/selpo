@@ -19,7 +19,7 @@ EMPLOYEES = [
     "Райф Арсен",
 ]
 
-TIMEOUT_SECONDS = 15
+TIMEOUT_SECONDS = 80
 SELECT_EMPLOYEE, SELECT_RATING, GET_COMMENT = range(3)
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -223,7 +223,7 @@ async def get_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text(
         f"✅ Голосовой отзыв принят!\n*{employee}* — {stars(rating)}\n\n"
-        f"_Меню появится через 15 секунд..._",
+        f"_Меню появится через 80 секунд..._",
         parse_mode="Markdown"
     )
     context.user_data.clear()
@@ -233,7 +233,7 @@ async def get_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── Авто-рестарт после отзыва ────────────────────────────────────────────────
 async def _auto_restart(update, context, old_msg_id):
-    await asyncio.sleep(15)
+    await asyncio.sleep(80)
     try:
         await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=old_msg_id)
     except Exception:
