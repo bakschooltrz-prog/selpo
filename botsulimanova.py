@@ -187,7 +187,7 @@ async def get_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text(
         f"✅ Спасибо! *{employee}* получил {stars(rating)}\n\n"
-        f"_Меню появится через 15 секунд..._",
+        f"_Меню появится через 80 секунд..._",
         parse_mode="Markdown"
     )
     context.user_data.clear()
