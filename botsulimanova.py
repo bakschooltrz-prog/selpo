@@ -7,7 +7,9 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes, ConversationHandler
 )
 
-BOT_TOKEN  = os.environ.get("BOT_TOKEN", "8697673336:AAFXrgVPvkrNR4SsRacgUwK-D2LlDg4NLe0")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не задан!")
 MANAGER_ID = int(os.environ.get("MANAGER_ID", "60365607"))
 BRANCH     = "Сельпо"
 
