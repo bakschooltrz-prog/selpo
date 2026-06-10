@@ -10,7 +10,7 @@ from telegram.ext import (
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не задан!")
-MANAGER_ID = int(os.environ.get("MANAGER_ID", "60365607"))
+MANAGER_ID = int(os.environ.get("MANAGER_ID", "1338569085"))
 BRANCH     = "Сельпо"
 
 EMPLOYEES = [
