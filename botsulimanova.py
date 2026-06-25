@@ -1,7 +1,6 @@
-
-import os, logging, asyncio
+import os, logging, asyncio, sqlite3, csv, io
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes, ConversationHandler
@@ -12,6 +11,12 @@ if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не задан!")
 MANAGER_ID = int(os.environ.get("MANAGER_ID", "1338569085"))
 BRANCH     = "Сельпо"
+
+# ВАЖНО: на Railway файловая система эфемерная (сбрасывается при редеплое).
+# Чтобы статистика не терялась, подключите Volume (Settings -> Volumes),
+# смонтируйте его, например, в /data, и задайте переменную окружения:
+# DB_PATH=/data/reviews.db
+DB_PATH = os.environ.get("DB_PATH", "reviews.db")
 
 EMPLOYEES = [
     "Бакиров Габит",
@@ -25,6 +30,38 @@ TIMEOUT_SECONDS = 80
 SELECT_EMPLOYEE, SELECT_RATING, GET_COMMENT = range(3)
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+
+# ─── База данных ──────────────────────────────────────────────────────────────
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee TEXT NOT NULL,
+            rating INTEGER NOT NULL,
+            comment TEXT,
+            username TEXT,
+            voice INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def save_review(employee, rating, username, comment="", voice=False):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT INTO reviews (employee, rating, comment, username, voice, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (employee, rating, comment, username, int(voice), datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def is_manager(update: Update) -> bool:
+    return update.effective_user.id == MANAGER_ID
 
 
 def employee_keyboard():
@@ -167,6 +204,7 @@ async def select_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 3, 4, 5 звёзд — сразу отправляем
     if rating >= 3:
         await send_to_manager(context, employee, rating, username)
+        save_review(employee, rating, username)
 
         msg = await query.edit_message_text(
             f"✅ Спасибо за оценку!\n\n"
@@ -201,6 +239,7 @@ async def get_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stars    = "⭐" * rating
 
     await send_to_manager(context, employee, rating, username, comment=comment)
+    save_review(employee, rating, username, comment=comment)
 
     msg = await update.message.reply_text(
         f"✅ Спасибо за отзыв!\n\n"
@@ -240,6 +279,7 @@ async def get_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from_chat_id=update.effective_chat.id,
         message_id=update.message.message_id
     )
+    save_review(employee, rating, username, comment="(голосовое сообщение)", voice=True)
 
     msg = await update.message.reply_text(
         f"✅ Спасибо за отзыв!\n\n"
@@ -271,6 +311,77 @@ async def global_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         start_timer(update, context, query.message.message_id)
 
 
+# ─── Статистика ───────────────────────────────────────────────────────────────
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_manager(update):
+        await update.message.reply_text("⛔ Команда доступна только менеджеру.")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*), AVG(rating) FROM reviews")
+    total, avg_all = cur.fetchone()
+
+    if not total:
+        await update.message.reply_text("📊 Пока нет ни одного отзыва.")
+        conn.close()
+        return
+
+    cur.execute("""
+        SELECT employee, COUNT(*) as cnt, AVG(rating) as avg_r
+        FROM reviews
+        GROUP BY employee
+        ORDER BY cnt DESC
+    """)
+    rows = cur.fetchall()
+
+    lines = [f"📊 *Статистика отзывов — {BRANCH}*", f"Всего отзывов: {total}", f"Средняя оценка: {avg_all:.2f} ⭐", ""]
+
+    for employee, cnt, avg_r in rows:
+        cur.execute("""
+            SELECT rating, COUNT(*) FROM reviews
+            WHERE employee = ?
+            GROUP BY rating
+        """, (employee,))
+        dist = dict(cur.fetchall())
+        dist_str = "  ".join(f"{r}⭐:{dist.get(r, 0)}" for r in range(1, 6))
+        lines.append(f"👤 *{employee}*")
+        lines.append(f"   Всего: {cnt}, средняя: {avg_r:.2f} ⭐")
+        lines.append(f"   {dist_str}")
+        lines.append("")
+
+    conn.close()
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ─── Экспорт в CSV ────────────────────────────────────────────────────────────
+async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_manager(update):
+        await update.message.reply_text("⛔ Команда доступна только менеджеру.")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT employee, rating, comment, username, voice, created_at FROM reviews ORDER BY created_at")
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        await update.message.reply_text("📊 Пока нет ни одного отзыва.")
+        return
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Сотрудник", "Оценка", "Комментарий", "Username", "Голосовое", "Дата"])
+    for employee, rating, comment, username, voice, created_at in rows:
+        writer.writerow([employee, rating, comment or "", username or "", "да" if voice else "нет", created_at])
+
+    data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))  # BOM для корректного открытия в Excel
+    data.name = f"reviews_{BRANCH}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+
+    await update.message.reply_document(document=InputFile(data, filename=data.name))
+
+
 # ─── Отмена ───────────────────────────────────────────────────────────────────
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cancel_timer(context)
@@ -281,6 +392,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
+    init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
@@ -308,6 +420,8 @@ def main():
     )
 
     app.add_handler(conv)
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("export", export))
     app.add_handler(CallbackQueryHandler(global_callback_handler))
 
     print(f"✅ Книга отзывов {BRANCH} запущена!")
@@ -316,3 +430,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
